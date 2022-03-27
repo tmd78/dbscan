@@ -4,7 +4,7 @@
 #include <stdlib.h> // RAND_MAX
 
 // The number of points to generate; do not exceed 2,147,483,647 as int is being used.
-#define N 100
+#define N 1000
 #define NOISE 0
 #define UNDEFINED -1
 
@@ -13,8 +13,8 @@ struct point
     int index;
     // The label of the cluster this point belongs to.
     int label;
-    float x;
-    float y;
+    double x;
+    double y;
 };
 
 struct args_dbscan
@@ -28,8 +28,8 @@ struct args_get_neighbors
 {
     double epsilon;
     struct point focal;
+    int *neighbors;
     struct point *points;
-    int *S;
 };
 
 void create_points(struct point *points);
@@ -74,7 +74,14 @@ int main(int argc, char *argv[])
     // Run dbscan.
     dbscan((void *)&args);
 
-    // TODO: Write clusters to disk.
+    // Write clusters to disk.
+    file_pointer = fopen("clusters.csv", "w");
+    fprintf(file_pointer, "x,y,cluster\n");
+    for (int i = 0; i < N; i++)
+    {
+        fprintf(file_pointer, "%lf,%lf,%d\n", points[i].x, points[i].y, points[i].label);
+    }
+    fclose(file_pointer);
 
     return 0;
 }
@@ -103,6 +110,8 @@ void dbscan(void *args)
     double epsilon;
     int label;
     int min_points;
+    // Reusable; holds indices from get_neighbors.
+    int neighbors[N];
     struct point *points;
     // Seed set.
     int S[N*N];
@@ -111,6 +120,7 @@ void dbscan(void *args)
     // Unpack args.
     struct args_dbscan *packet = (struct args_dbscan *)args;
     epsilon = packet->epsilon;
+    label = 0;
     min_points = packet->min_points;
     points = packet->points;
 
@@ -129,17 +139,84 @@ void dbscan(void *args)
         struct args_get_neighbors args = {
             .epsilon = epsilon,
             .focal = points[i],
-            .points = points,
-            .S = S
+            .neighbors = S,
+            .points = points
         };
 
         // Find neighbors of points[i].
         int S_count = get_neighbors((void *)&args);
+
+        if (S_count < min_points)
+        {
+            // min_points condition does not hold.
+            points[i].label = NOISE;
+            continue;
+        }
+
+        // Add points[i] to cluster whose ID = label.
+        label += 1;
+        points[i].label = label;
+
+        // Loop through S; note that S_count may increase during iteration.
+        int j = 0;
+        while (j < S_count)
+        {
+            // The points index of the seed in this iteration.
+            int s = S[j];
+            
+            // Increment j to show we've visited this seed.
+            j += 1;
+
+            if (s == i)
+            {
+                // Don't revisit points[i].
+                continue;
+            }
+
+            if (points[s].label == NOISE)
+            {
+                // This is a border point.
+                points[s].label = label;
+                continue;
+            }
+
+            if (points[s].label != UNDEFINED)
+            {
+                // Don't revisit processed points.
+                continue;
+            }
+
+            // Add this seed to cluster whose ID = label.
+            points[s].label = label;
+
+            // Package arguments for get_neighbors.
+            struct args_get_neighbors args = {
+                .epsilon = epsilon,
+                .focal = points[s],
+                .neighbors = neighbors,
+                .points = points
+            };
+
+            int neighbor_count = get_neighbors((void *)&args);
+
+            if (neighbor_count < min_points)
+            {
+                // min_points condition does not hold.
+                continue;
+            }
+
+            // Add this seed's neighbor indices to S.
+            for (int k = 0; k < neighbor_count; k++)
+            {
+                S[S_count] = neighbors[k];
+                S_count += 1;
+            }
+        }
     }
 }
 
 /*
-Find neighbors of focal and record their indices in S.
+Find neighbors of focal and record their indices in neighbors.
 
 Returns: An int representing the number of neighbors found.
 */
@@ -150,18 +227,18 @@ int get_neighbors(void *args)
     double distance;
     double epsilon;
     struct point focal;
+    int *neighbors;
+    // The next available index in neighbors.
     int next_index;
     struct point *points;
-    int *S;
 
     // Unpack args.
     struct args_get_neighbors *packet = (struct args_get_neighbors *)args;
     epsilon = packet->epsilon;
     focal = packet->focal;
-    // The next available index in S.
     next_index = 0;
+    neighbors = packet->neighbors;
     points = packet->points;
-    S = packet->S;
     
     // Loop through points to find neighbors--points within epsilon distance of focal.
     for (int i = 0; i < N; i++)
@@ -173,8 +250,8 @@ int get_neighbors(void *args)
 
         if (distance <= epsilon)
         {
-            // We found a neighbor; record its index in S.
-            S[next_index] = i;
+            // We found a neighbor; record its index.
+            neighbors[next_index] = i;
             next_index += 1;
         }
     }

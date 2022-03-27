@@ -52,5 +52,6 @@ Module.symvers
 Mkfile.old
 dkms.conf
 
-# Output
+# Other
 *.csv
+.DS_Store
