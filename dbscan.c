@@ -32,6 +32,7 @@ struct args_get_neighbors
     struct point *points;
 };
 
+void create_grid(struct point *points);
 void create_points(struct point *points);
 void dbscan(void *args);
 int get_neighbors(void *args);
@@ -64,6 +65,10 @@ int main(int argc, char *argv[])
     }
     fclose(file_pointer);
 
+    create_grid(points);
+
+    // TODO: Run dense box algorithm.
+
     // Package arguments for dbscan.
     struct args_dbscan args = {
         .epsilon = epsilon,
@@ -84,6 +89,41 @@ int main(int argc, char *argv[])
     fclose(file_pointer);
 
     return 0;
+}
+
+void create_grid(struct point *points)
+{
+    double min_x;
+    double min_y;
+    double max_x;
+    double max_y;
+
+    // Find bounds for grid.
+    min_x = points[0].x;
+    min_y = points[0].y;
+    max_x = points[0].x;
+    max_y = points[0].y;
+    for (int i = 1; i < N; i++)
+    {
+        // Update min bounds if needed.
+        if (points[i].x < min_x)
+        {
+            min_x = points[i].x;
+        }
+        if (points[i].y < min_y)
+        {
+            min_y = points[i].y;
+        }
+        // Update max bounds if needed.
+        if (points[i].x > max_x)
+        {
+            max_x = points[i].x;
+        }
+        if (points[i].y > max_y)
+        {
+            max_y = points[i].y;
+        }
+    }
 }
 
 void create_points(struct point *points)
