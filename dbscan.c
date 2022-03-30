@@ -1,9 +1,11 @@
+#include "cvector.h"
 #include <math.h> // sqrt
 #include <stdbool.h> // bool
 #include <stdio.h> // FILE
 #include <stdlib.h> // RAND_MAX
 
 // The number of points to generate; do not exceed 2,147,483,647 as int is being used.
+#define CVECTOR_LOGARITHMIC_GROWTH
 #define N 1000
 #define NOISE 0
 #define UNDEFINED -1
