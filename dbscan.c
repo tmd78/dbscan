@@ -17,6 +17,13 @@ struct point
     double y;
 };
 
+struct args_dense_box
+{
+    double epsilon;
+    int min_points;
+    struct point *points;
+};
+
 struct args_dbscan
 {
     double epsilon;
@@ -32,8 +39,8 @@ struct args_get_neighbors
     struct point *points;
 };
 
-void create_grid(struct point *points);
 void create_points(struct point *points);
+void dense_box(void *args);
 void dbscan(void *args);
 int get_neighbors(void *args);
 
@@ -65,19 +72,25 @@ int main(int argc, char *argv[])
     }
     fclose(file_pointer);
 
-    create_grid(points);
+    // Package arguments for dense_box.
+    struct args_dense_box args_dense_box = {
+        .epsilon = epsilon,
+        .min_points = min_points,
+        .points = points
+    };
 
-    // TODO: Run dense box algorithm.
+    // Avoid distance calculations with dense box.
+    dense_box((void *)&args_dense_box);
 
     // Package arguments for dbscan.
-    struct args_dbscan args = {
+    struct args_dbscan args_dbscan = {
         .epsilon = epsilon,
         .min_points = min_points,
         .points = points
     };
     
     // Run dbscan.
-    dbscan((void *)&args);
+    dbscan((void *)&args_dbscan);
 
     // Write clusters to disk.
     file_pointer = fopen("clusters.csv", "w");
@@ -91,12 +104,45 @@ int main(int argc, char *argv[])
     return 0;
 }
 
-void create_grid(struct point *points)
+void create_points(struct point *points)
 {
+    double max_coordinate = 1000;
+    srand(72);
+
+    for (int i = 0; i < N; i++)
+    {
+        points[i].index = i;
+        points[i].label = UNDEFINED;
+        points[i].x = max_coordinate * ((double)rand() / (double)RAND_MAX);
+        points[i].y = max_coordinate * ((double)rand() / (double)RAND_MAX);
+    }
+}
+
+/*
+Avoid distance calculations by assigning points to clusters with the dense box algorithm.
+
+Returns: void.
+*/
+void dense_box(void *args)
+{
+    double cell_length;
+    double epsilon;
+    // Number of cells in grid's x-dimension.
+    int G_x;
+    // Number of cells in grid's y-dimension.
+    int G_y;
+    int min_points;
     double min_x;
     double min_y;
     double max_x;
     double max_y;
+    struct point *points;
+
+    // Unpack args.
+    struct args_dense_box *packet = (struct args_dense_box *)args;
+    epsilon = packet->epsilon;
+    min_points = packet->min_points;
+    points = packet->points;
 
     // Find bounds for grid.
     min_x = points[0].x;
@@ -124,20 +170,18 @@ void create_grid(struct point *points)
             max_y = points[i].y;
         }
     }
-}
 
-void create_points(struct point *points)
-{
-    double max_coordinate = 1000;
-    srand(72);
+    // Find grid dimensions.
+    cell_length = epsilon / (2*sqrt(2));
+    G_x = (max_x - min_x) / cell_length;
+    G_y = (max_y - min_y) / cell_length;
+    
+    // Grid.
+    int *G[G_x][G_y];
 
-    for (int i = 0; i < N; i++)
-    {
-        points[i].index = i;
-        points[i].label = UNDEFINED;
-        points[i].x = max_coordinate * ((double)rand() / (double)RAND_MAX);
-        points[i].y = max_coordinate * ((double)rand() / (double)RAND_MAX);
-    }
+    // TODO: Assign each point to a cell.
+
+    // TODO: Merge dense boxes.
 }
 
 /*
@@ -160,11 +204,11 @@ void dbscan(void *args)
     // Unpack args.
     struct args_dbscan *packet = (struct args_dbscan *)args;
     epsilon = packet->epsilon;
-    label = 0;
     min_points = packet->min_points;
     points = packet->points;
 
     // Loop through all points.
+    label = 0;
     for (int i = 0; i < N; i++)
     {
         if (points[i].label != UNDEFINED)
@@ -276,11 +320,11 @@ int get_neighbors(void *args)
     struct args_get_neighbors *packet = (struct args_get_neighbors *)args;
     epsilon = packet->epsilon;
     focal = packet->focal;
-    next_index = 0;
     neighbors = packet->neighbors;
     points = packet->points;
     
     // Loop through points to find neighbors--points within epsilon distance of focal.
+    next_index = 0;
     for (int i = 0; i < N; i++)
     {
         // Calculate distance.
