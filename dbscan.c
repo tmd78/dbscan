@@ -178,10 +178,18 @@ void dense_box(void *args)
     G_x = (max_x - min_x) / cell_length;
     G_y = (max_y - min_y) / cell_length;
     
-    // Grid.
-    int *G[G_x][G_y];
+    // Grid whose cells are potential dense boxes.
+    cvector_vector_type(int) G[G_x][G_y];
 
-    // TODO: Assign each point to a cell.
+    // Assign each point to a cell in grid.
+    int x_index = 0;
+    int y_index = 0;
+    for (int i = 0; i < 10; i++)
+    {
+        x_index = (points[i].x - min_x) / cell_length;
+        y_index = (points[i].y - min_x) / cell_length;
+        cvector_push_back(G[x_index][y_index], i);
+    }
 
     // TODO: Merge dense boxes.
 }
@@ -196,8 +204,6 @@ void dbscan(void *args)
     double epsilon;
     int label;
     int min_points;
-    // Reusable; holds indices from get_neighbors.
-    int neighbors[N];
     struct point *points;
     // Seed set.
     int S[N*N];
@@ -243,12 +249,17 @@ void dbscan(void *args)
         label += 1;
         points[i].label = label;
 
-        // Loop through S; note that S_count may increase during iteration.
+        // Iterator.
         int j = 0;
+        int neighbor_count;
+        // Holds indices from get_neighbors.
+        int neighbors[N];
+        // The points index of seed in iteration below.
+        int s;
+        // Loop through S; note that S_count may increase during iteration.
         while (j < S_count)
         {
-            // The points index of the seed in this iteration.
-            int s = S[j];
+            s = S[j];
             
             // Increment j to show we've visited this seed.
             j += 1;
@@ -283,7 +294,7 @@ void dbscan(void *args)
                 .points = points
             };
 
-            int neighbor_count = get_neighbors((void *)&args);
+            neighbor_count = get_neighbors((void *)&args);
 
             if (neighbor_count < min_points)
             {
