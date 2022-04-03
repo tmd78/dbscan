@@ -4,11 +4,20 @@
 #include <stdio.h> // FILE
 #include <stdlib.h> // RAND_MAX
 
-// The number of points to generate; do not exceed 2,147,483,647 as int is being used.
 #define CVECTOR_LOGARITHMIC_GROWTH
+// The number of points to generate; do not exceed 2,147,483,647 as int is being used.
 #define N 1000
 #define NOISE 0
 #define UNDEFINED -1
+
+struct cell
+{
+    int label;
+    // Holds the indices of points contained in this cell.
+    cvector_vector_type(int) points;
+    int x;
+    int y;
+};
 
 struct point
 {
@@ -41,10 +50,19 @@ struct args_get_neighbors
     struct point *points;
 };
 
+struct args_merge_dense_boxes
+{
+    struct cell center;
+    int min_points;
+    struct point *points;
+    // TODO: Figure out how to pass multi-dimension array.
+};
+
 void create_points(struct point *points);
 void dense_box(void *args);
 void dbscan(void *args);
 int get_neighbors(void *args);
+void merge_dense_boxes(void *args);
 
 int main(int argc, char *argv[])
 {
@@ -133,12 +151,16 @@ void dense_box(void *args)
     int G_x;
     // Number of cells in grid's y-dimension.
     int G_y;
+    int label;
     int min_points;
     double min_x;
     double min_y;
     double max_x;
     double max_y;
     struct point *points;
+    cvector_vector_type(struct cell) queue;
+    int x;
+    int y;
 
     // Unpack args.
     struct args_dense_box *packet = (struct args_dense_box *)args;
@@ -175,23 +197,66 @@ void dense_box(void *args)
 
     // Find grid dimensions.
     cell_length = epsilon / (2*sqrt(2));
-    G_x = (max_x - min_x) / cell_length;
-    G_y = (max_y - min_y) / cell_length;
+    G_x = (max_x - min_x) / cell_length + 1;
+    G_y = (max_y - min_y) / cell_length + 1;
     
     // Grid whose cells are potential dense boxes.
-    cvector_vector_type(int) G[G_x][G_y];
-
-    // Assign each point to a cell in grid.
-    int x_index = 0;
-    int y_index = 0;
-    for (int i = 0; i < 10; i++)
+    struct cell G[G_x][G_y];
+    for (x = 0; x < G_x; x++)
     {
-        x_index = (points[i].x - min_x) / cell_length;
-        y_index = (points[i].y - min_x) / cell_length;
-        cvector_push_back(G[x_index][y_index], i);
+        for (y = 0; y < G_y; y++)
+        {
+            G[x][y].label = UNDEFINED;
+            G[x][y].points = NULL;
+            G[x][y].x = x;
+            G[x][y].y = y;
+        }
     }
 
-    // TODO: Merge dense boxes.
+    // Assign each point to a cell in grid.
+    for (int i = 0; i < N; i++)
+    {
+        x = (points[i].x - min_x) / cell_length;
+        y = (points[i].y - min_y) / cell_length;
+        cvector_push_back(G[x][y].points, i);
+    }
+
+    // Merge dense boxes.
+    label = 0;
+    queue = NULL;
+    for (x = 0; x < G_x; x++)
+    {
+        for (y = 0; y < G_y; y++)
+        {
+            if (cvector_size(G[x][y].points) < min_points)
+            {
+                // Skip this cell if not a dense box.
+                continue;
+            }
+
+            if (cvector_size(G[x][y].points) == 0)
+            {
+                // Skip this dense box if there's no points to process.
+                continue;
+            }
+
+            if (G[x][y].label > 0)
+            {
+                // Skip this dense box if already merged.
+                continue;
+            }
+
+            label += 1;
+            G[x][y].label = label;
+            // Assign each point in this cell to cluster whose ID = label.
+            for (int i = 0; i < cvector_size(G[x][y].points); i++)
+            {
+                points[G[x][y].points[i]].label = label;
+            }
+
+            // TODO: Merge surrounding dense boxes.
+        }
+    }
 }
 
 /*
@@ -354,4 +419,14 @@ int get_neighbors(void *args)
     }
 
     return next_index;
+}
+
+/*
+A description.
+
+Returns: void.
+*/
+void merge_dense_boxes(void *args)
+{
+    // TODO: Implement.
 }
