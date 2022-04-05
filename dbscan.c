@@ -52,12 +52,14 @@ struct args_get_neighbors
 
 struct args_merge_dense_boxes
 {
-    struct cell center;
+    // An index to G.
+    int center;
     struct cell *G;
     int G_x;
     int G_y;
     int min_points;
     struct point *points;
+    int *queue;
 };
 
 void create_points(struct point *points);
@@ -265,6 +267,7 @@ Returns: void.
 */
 void dense_box(void *args)
 {
+    struct args_merge_dense_boxes args_merge_dense_boxes;
     double cell_length;
     double epsilon;
     // Number of cells in grid's x-dimension.
@@ -279,7 +282,7 @@ void dense_box(void *args)
     double max_x;
     double max_y;
     struct point *points;
-    cvector_vector_type(struct cell) queue;
+    cvector_vector_type(int) queue;
     int x;
     int y;
 
@@ -342,9 +345,19 @@ void dense_box(void *args)
         cvector_push_back(G[x * G_y + y].points, i);
     }
 
-    // Merge dense boxes.
-    label = 0;
+    // Allocate queue.
     queue = NULL;
+    cvector_push_back(queue, 0);
+    cvector_pop_back(queue);
+    
+    // Merge dense boxes.
+    args_merge_dense_boxes.G = G;
+    args_merge_dense_boxes.G_x = G_x;
+    args_merge_dense_boxes.G_y = G_y;
+    args_merge_dense_boxes.min_points = min_points;
+    args_merge_dense_boxes.points = points;
+    args_merge_dense_boxes.queue = queue;
+    label = 0;
     for (i = 0; i < (G_x * G_y); i++)
     {
         if (cvector_size(G[i].points) < min_points)
@@ -373,7 +386,10 @@ void dense_box(void *args)
             points[G[i].points[j]].label = label;
         }
 
-        // TODO: Fix stack overflow.
+        // Update center in arguments.
+        args_merge_dense_boxes.center = i;
+
+        merge_dense_boxes((void *)&args_merge_dense_boxes);
     }
 
     // Free heap memory.
@@ -435,13 +451,14 @@ Returns: void.
 */
 void merge_dense_boxes(void *args)
 {
-    struct cell center;
+    int center;
     struct cell *G;
     int G_x;
     int G_y;
     bool in_bounds;
     int min_points;
     struct point *points;
+    int *queue;
     int x;
     int y;
     
@@ -453,10 +470,11 @@ void merge_dense_boxes(void *args)
     G_y = packet->G_y;
     min_points = packet->min_points;
     points = packet->points;
+    queue = packet->queue;
     
     // Check top.
-    x = center.x;
-    y = center.y + 1;
+    x = G[center].x;
+    y = G[center].y + 1;
     in_bounds = (x > -1) && (x < G_x) && (y > -1) && (y < G_y);
     if (in_bounds && cvector_size(G[x * G_y + y].points) >= min_points)
     {
@@ -465,8 +483,8 @@ void merge_dense_boxes(void *args)
     }
     else
     {
-        x = center.x;
-        y = center.y + 2;
+        x = G[center].x;
+        y = G[center].y + 2;
         in_bounds = (x > -1) && (x < G_x) && (y > -1) && (y < G_y);
         if (in_bounds && cvector_size(G[x * G_y + y].points) >= min_points)
         {
@@ -475,8 +493,8 @@ void merge_dense_boxes(void *args)
     }
 
     // Check top-right.
-    x = center.x + 1;
-    y = center.y + 1;
+    x = G[center].x + 1;
+    y = G[center].y + 1;
     in_bounds = (x > -1) && (x < G_x) && (y > -1) && (y < G_y);
     if (in_bounds && cvector_size(G[x * G_y + y].points) >= min_points)
     {
@@ -485,8 +503,8 @@ void merge_dense_boxes(void *args)
     }
 
     // Check right.
-    x = center.x + 1;
-    y = center.y;
+    x = G[center].x + 1;
+    y = G[center].y;
     in_bounds = (x > -1) && (x < G_x) && (y > -1) && (y < G_y);
     if (in_bounds && cvector_size(G[x * G_y + y].points) >= min_points)
     {
@@ -495,8 +513,8 @@ void merge_dense_boxes(void *args)
     }
     else
     {
-        x = center.x + 2;
-        y = center.y;
+        x = G[center].x + 2;
+        y = G[center].y;
         in_bounds = (x > -1) && (x < G_x) && (y > -1) && (y < G_y);
         if (in_bounds && cvector_size(G[x * G_y + y].points) >= min_points)
         {
@@ -505,8 +523,8 @@ void merge_dense_boxes(void *args)
     }
 
     // Check bottom-right.
-    x = center.x + 1;
-    y = center.y - 1;
+    x = G[center].x + 1;
+    y = G[center].y - 1;
     in_bounds = (x > -1) && (x < G_x) && (y > -1) && (y < G_y);
     if (in_bounds && cvector_size(G[x * G_y + y].points) >= min_points)
     {
@@ -515,8 +533,8 @@ void merge_dense_boxes(void *args)
     }
 
     // Check bottom.
-    x = center.x;
-    y = center.y - 1;
+    x = G[center].x;
+    y = G[center].y - 1;
     in_bounds = (x > -1) && (x < G_x) && (y > -1) && (y < G_y);
     if (in_bounds && cvector_size(G[x * G_y + y].points) >= min_points)
     {
@@ -525,8 +543,8 @@ void merge_dense_boxes(void *args)
     }
     else
     {
-        x = center.x;
-        y = center.y - 2;
+        x = G[center].x;
+        y = G[center].y - 2;
         in_bounds = (x > -1) && (x < G_x) && (y > -1) && (y < G_y);
         if (in_bounds && cvector_size(G[x * G_y + y].points) >= min_points)
         {
@@ -535,8 +553,8 @@ void merge_dense_boxes(void *args)
     }
 
     // Check bottom-left.
-    x = center.x - 1;
-    y = center.y - 1;
+    x = G[center].x - 1;
+    y = G[center].y - 1;
     in_bounds = (x > -1) && (x < G_x) && (y > -1) && (y < G_y);
     if (in_bounds && cvector_size(G[x * G_y + y].points) >= min_points)
     {
@@ -545,8 +563,8 @@ void merge_dense_boxes(void *args)
     }
 
     // Check left.
-    x = center.x - 1;
-    y = center.y;
+    x = G[center].x - 1;
+    y = G[center].y;
     in_bounds = (x > -1) && (x < G_x) && (y > -1) && (y < G_y);
     if (in_bounds && cvector_size(G[x * G_y + y].points) >= min_points)
     {
@@ -555,8 +573,8 @@ void merge_dense_boxes(void *args)
     }
     else
     {
-        x = center.x - 2;
-        y = center.y;
+        x = G[center].x - 2;
+        y = G[center].y;
         in_bounds = (x > -1) && (x < G_x) && (y > -1) && (y < G_y);
         if (in_bounds && cvector_size(G[x * G_y + y].points) >= min_points)
         {
@@ -565,8 +583,8 @@ void merge_dense_boxes(void *args)
     }
 
     // Check top-left.
-    x = center.x - 1;
-    y = center.y + 1;
+    x = G[center].x - 1;
+    y = G[center].y + 1;
     in_bounds = (x > -1) && (x < G_x) && (y > -1) && (y < G_y);
     if (in_bounds && cvector_size(G[x * G_y + y].points) >= min_points)
     {
