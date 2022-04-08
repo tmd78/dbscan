@@ -284,7 +284,7 @@ void dense_box(void *args)
     int i;
     int j;
     int label;
-    int merged[12];
+    int merged[8];
     int merged_count;
     int min_points;
     double min_x;
@@ -506,6 +506,7 @@ int merge_dense_boxes(void *args)
     struct cell *G;
     int G_x;
     int G_y;
+    int i;
     bool in_bounds;
     // Holds indices of dense boxes merged to focal.
     int *merged;
@@ -530,167 +531,50 @@ int merge_dense_boxes(void *args)
     args_label_points.label = points[G[focal].points[0]].label;
     args_label_points.points = points;
 
-    merged_count = 0;
+    // Get adjacent cells.
+    int adjacent[8] = {
+        G[focal].x * G_y + (G[focal].y + 1),
+        (G[focal].x + 1) * G_y + (y = G[focal].y + 1),
+        (G[focal].x + 1) * G_y + G[focal].y,
+        (G[focal].x + 1) * G_y + (G[focal].y - 1),
+        G[focal].x * G_y + (G[focal].y - 1),
+        (G[focal].x - 1) * G_y + (G[focal].y - 1),
+        (G[focal].x - 1) * G_y + G[focal].y,
+        (G[focal].x - 1) * G_y + (G[focal].y + 1)
+    };
     
-    // Check top.
-    x = G[focal].x;
-    y = G[focal].y + 1;
-    in_bounds = (x > -1) && (x < G_x) && (y > -1) && (y < G_y);
-    if (in_bounds && cvector_size(G[x * G_y + y].points) >= min_points)
+    // Attempt to merge adjacent cells.
+    merged_count = 0;
+    for (i = 0; i < 8; i++)
     {
-        // Label all points in this dense box.
-        args_label_points.indices = G[x * G_y + y].points;
-        label_points((void *)&args_label_points);
-
-        // Add this dense box to merged.
-        merged[merged_count] = x * G_y + y;
-        merged_count += 1;
-    }
-    else
-    {
-        x = G[focal].x;
-        y = G[focal].y + 2;
-        in_bounds = (x > -1) && (x < G_x) && (y > -1) && (y < G_y);
-        if (in_bounds && cvector_size(G[x * G_y + y].points) >= min_points)
+        if (adjacent[i] < 0 || adjacent[i] >= G_x * G_y)
         {
-            // TODO: Attempt to merge non-adjacent dense box.
+            // Index out of bounds of G.
+            continue;
         }
-    }
 
-    // Check top-right.
-    x = G[focal].x + 1;
-    y = G[focal].y + 1;
-    in_bounds = (x > -1) && (x < G_x) && (y > -1) && (y < G_y);
-    if (in_bounds && cvector_size(G[x * G_y + y].points) >= min_points)
-    {
-        // Label all points in this dense box.
-        args_label_points.indices = G[x * G_y + y].points;
-        label_points((void *)&args_label_points);
-
-        // Add this dense box to merged.
-        merged[merged_count] = x * G_y + y;
-        merged_count += 1;
-    }
-
-    // Check right.
-    x = G[focal].x + 1;
-    y = G[focal].y;
-    in_bounds = (x > -1) && (x < G_x) && (y > -1) && (y < G_y);
-    if (in_bounds && cvector_size(G[x * G_y + y].points) >= min_points)
-    {
-        // Label all points in this dense box.
-        args_label_points.indices = G[x * G_y + y].points;
-        label_points((void *)&args_label_points);
-
-        // Add this dense box to merged.
-        merged[merged_count] = x * G_y + y;
-        merged_count += 1;
-    }
-    else
-    {
-        x = G[focal].x + 2;
-        y = G[focal].y;
-        in_bounds = (x > -1) && (x < G_x) && (y > -1) && (y < G_y);
-        if (in_bounds && cvector_size(G[x * G_y + y].points) >= min_points)
+        if (cvector_size(G[adjacent[i]].points) < min_points)
         {
-            // TODO: Attempt to merge non-adjacent dense box.
+            // Not a dense box.
+            continue;
         }
-    }
 
-    // Check bottom-right.
-    x = G[focal].x + 1;
-    y = G[focal].y - 1;
-    in_bounds = (x > -1) && (x < G_x) && (y > -1) && (y < G_y);
-    if (in_bounds && cvector_size(G[x * G_y + y].points) >= min_points)
-    {
-        // Label all points in this dense box.
-        args_label_points.indices = G[x * G_y + y].points;
-        label_points((void *)&args_label_points);
-
-        // Add this dense box to merged.
-        merged[merged_count] = x * G_y + y;
-        merged_count += 1;
-    }
-
-    // Check bottom.
-    x = G[focal].x;
-    y = G[focal].y - 1;
-    in_bounds = (x > -1) && (x < G_x) && (y > -1) && (y < G_y);
-    if (in_bounds && cvector_size(G[x * G_y + y].points) >= min_points)
-    {
-        // Label all points in this dense box.
-        args_label_points.indices = G[x * G_y + y].points;
-        label_points((void *)&args_label_points);
-
-        // Add this dense box to merged.
-        merged[merged_count] = x * G_y + y;
-        merged_count += 1;
-    }
-    else
-    {
-        x = G[focal].x;
-        y = G[focal].y - 2;
-        in_bounds = (x > -1) && (x < G_x) && (y > -1) && (y < G_y);
-        if (in_bounds && cvector_size(G[x * G_y + y].points) >= min_points)
+        if (points[G[adjacent[i]].points[0]].label > 0)
         {
-            // TODO: Attempt to merge non-adjacent dense box.
+            // Already merged.
+            continue;
         }
-    }
 
-    // Check bottom-left.
-    x = G[focal].x - 1;
-    y = G[focal].y - 1;
-    in_bounds = (x > -1) && (x < G_x) && (y > -1) && (y < G_y);
-    if (in_bounds && cvector_size(G[x * G_y + y].points) >= min_points)
-    {
         // Label all points in this dense box.
-        args_label_points.indices = G[x * G_y + y].points;
+        args_label_points.indices = G[adjacent[i]].points;
         label_points((void *)&args_label_points);
 
         // Add this dense box to merged.
-        merged[merged_count] = x * G_y + y;
+        merged[merged_count] = adjacent[i];
         merged_count += 1;
     }
 
-    // Check left.
-    x = G[focal].x - 1;
-    y = G[focal].y;
-    in_bounds = (x > -1) && (x < G_x) && (y > -1) && (y < G_y);
-    if (in_bounds && cvector_size(G[x * G_y + y].points) >= min_points)
-    {
-        // Label all points in this dense box.
-        args_label_points.indices = G[x * G_y + y].points;
-        label_points((void *)&args_label_points);
-
-        // Add this dense box to merged.
-        merged[merged_count] = x * G_y + y;
-        merged_count += 1;
-    }
-    else
-    {
-        x = G[focal].x - 2;
-        y = G[focal].y;
-        in_bounds = (x > -1) && (x < G_x) && (y > -1) && (y < G_y);
-        if (in_bounds && cvector_size(G[x * G_y + y].points) >= min_points)
-        {
-            // TODO: Attempt to merge non-adjacent dense box.
-        }
-    }
-
-    // Check top-left.
-    x = G[focal].x - 1;
-    y = G[focal].y + 1;
-    in_bounds = (x > -1) && (x < G_x) && (y > -1) && (y < G_y);
-    if (in_bounds && cvector_size(G[x * G_y + y].points) >= min_points)
-    {
-        // Label all points in this dense box.
-        args_label_points.indices = G[x * G_y + y].points;
-        label_points((void *)&args_label_points);
-
-        // Add this dense box to merged.
-        merged[merged_count] = x * G_y + y;
-        merged_count += 1;
-    }
+    // TODO: Attempt to merge non-adjacent cells.
 
     return merged_count;
 }
