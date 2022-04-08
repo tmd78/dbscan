@@ -12,7 +12,6 @@
 
 struct cell
 {
-    int label;
     // Holds the indices of points contained in this cell.
     cvector_vector_type(int) points;
     int x;
@@ -50,9 +49,15 @@ struct args_get_neighbors
     struct point *points;
 };
 
+struct args_label_points
+{
+    cvector_vector_type(int) indices;
+    int label;
+    struct point *points;
+};
+
 struct args_merge_dense_boxes
 {
-    // An index to G.
     int center;
     struct cell *G;
     int G_x;
@@ -66,6 +71,7 @@ void create_points(struct point *points);
 void dbscan(void *args);
 void dense_box(void *args);
 int get_neighbors(void *args);
+void label_points(void *args);
 void merge_dense_boxes(void *args);
 
 int main(int argc, char *argv[])
@@ -267,6 +273,7 @@ Returns: void.
 */
 void dense_box(void *args)
 {
+    struct args_label_points args_label_points;
     struct args_merge_dense_boxes args_merge_dense_boxes;
     double cell_length;
     double epsilon;
@@ -330,10 +337,13 @@ void dense_box(void *args)
     {
         for (y = 0; y < G_y; y++)
         {
-            G[x * G_y + y].label = UNDEFINED;
-            G[x * G_y + y].points = NULL;
             G[x * G_y + y].x = x;
             G[x * G_y + y].y = y;
+            
+            // Allocate this cell's points vector.
+            G[x * G_y + y].points = NULL;
+            cvector_push_back(G[x * G_y + y].points, 0);
+            cvector_pop_back(G[x * G_y + y].points);
         }
     }
 
@@ -350,13 +360,16 @@ void dense_box(void *args)
     cvector_push_back(queue, 0);
     cvector_pop_back(queue);
     
-    // Merge dense boxes.
+    // Update arguments.
+    args_label_points.points = points;
     args_merge_dense_boxes.G = G;
     args_merge_dense_boxes.G_x = G_x;
     args_merge_dense_boxes.G_y = G_y;
     args_merge_dense_boxes.min_points = min_points;
     args_merge_dense_boxes.points = points;
     args_merge_dense_boxes.queue = queue;
+
+    // Merge dense boxes.
     label = 0;
     for (i = 0; i < (G_x * G_y); i++)
     {
@@ -372,24 +385,25 @@ void dense_box(void *args)
             continue;
         }
 
-        if (G[i].label > 0)
+        if (points[G[i].points[0]].label > 0)
         {
             // Skip this dense box if already merged.
             continue;
         }
 
+        // Label all points in this cell with label's current value.
         label += 1;
-        G[i].label = label;
-        // Assign each point in this cell to cluster whose ID = label.
-        for (int j = 0; j < cvector_size(G[i].points); j++)
-        {
-            points[G[i].points[j]].label = label;
-        }
+        args_label_points.indices = G[i].points;
+        args_label_points.label = label;
+        label_points((void *)&args_label_points);
 
         // Update center in arguments.
         args_merge_dense_boxes.center = i;
 
-        merge_dense_boxes((void *)&args_merge_dense_boxes);
+        // TODO: Debug merge_dense_boxes().
+        //merge_dense_boxes((void *)&args_merge_dense_boxes);
+
+        // TODO: Continue merge with current label value and cells on queue.
     }
 
     // Free heap memory.
@@ -445,12 +459,40 @@ int get_neighbors(void *args)
 }
 
 /*
+Label each point whose index is in indices.
+
+Returns: void.
+*/
+void label_points(void *args)
+{
+    int index;
+    // The indices (to points array) of points to label.
+    int *indices;
+    int label;
+    struct point *points;
+
+    // Unpack args.
+    struct args_label_points *packet = (struct args_label_points *)args;
+    indices = packet->indices;
+    label = packet->label;
+    points = packet->points;
+
+    for (int i = 0; i < cvector_size(indices); i++)
+    {
+        index = indices[i];
+        points[index].label = label;
+    }
+}
+
+/*
 A description.
 
 Returns: void.
 */
 void merge_dense_boxes(void *args)
 {
+    struct args_label_points args_label_points;
+    // An index to G.
     int center;
     struct cell *G;
     int G_x;
@@ -472,14 +514,22 @@ void merge_dense_boxes(void *args)
     points = packet->points;
     queue = packet->queue;
     
+    // Update arguments.
+    args_label_points.label = points[G[center].points[0]].label;
+    args_label_points.points = points;
+    
     // Check top.
     x = G[center].x;
     y = G[center].y + 1;
     in_bounds = (x > -1) && (x < G_x) && (y > -1) && (y < G_y);
     if (in_bounds && cvector_size(G[x * G_y + y].points) >= min_points)
     {
-        // TODO: Label all points in this dense box.
-        // TODO: Queue cell.
+        // Label all points in this dense box.
+        args_label_points.indices = G[x * G_y + y].points;
+        label_points((void *)&args_label_points);
+
+        // Queue cell.
+        cvector_push_back(queue, x * G_y + y);
     }
     else
     {
@@ -498,8 +548,12 @@ void merge_dense_boxes(void *args)
     in_bounds = (x > -1) && (x < G_x) && (y > -1) && (y < G_y);
     if (in_bounds && cvector_size(G[x * G_y + y].points) >= min_points)
     {
-        // TODO: Label all points in this dense box.
-        // TODO: Queue cell.
+        // Label all points in this dense box.
+        args_label_points.indices = G[x * G_y + y].points;
+        label_points((void *)&args_label_points);
+
+        // Queue cell.
+        cvector_push_back(queue, x * G_y + y);
     }
 
     // Check right.
@@ -508,8 +562,12 @@ void merge_dense_boxes(void *args)
     in_bounds = (x > -1) && (x < G_x) && (y > -1) && (y < G_y);
     if (in_bounds && cvector_size(G[x * G_y + y].points) >= min_points)
     {
-        // TODO: Label all points in this dense box.
-        // TODO: Queue cell.
+        // Label all points in this dense box.
+        args_label_points.indices = G[x * G_y + y].points;
+        label_points((void *)&args_label_points);
+
+        // Queue cell.
+        cvector_push_back(queue, x * G_y + y);
     }
     else
     {
@@ -528,8 +586,12 @@ void merge_dense_boxes(void *args)
     in_bounds = (x > -1) && (x < G_x) && (y > -1) && (y < G_y);
     if (in_bounds && cvector_size(G[x * G_y + y].points) >= min_points)
     {
-        // TODO: Label all points in this dense box.
-        // TODO: Queue cell.
+        // Label all points in this dense box.
+        args_label_points.indices = G[x * G_y + y].points;
+        label_points((void *)&args_label_points);
+
+        // Queue cell.
+        cvector_push_back(queue, x * G_y + y);
     }
 
     // Check bottom.
@@ -538,8 +600,12 @@ void merge_dense_boxes(void *args)
     in_bounds = (x > -1) && (x < G_x) && (y > -1) && (y < G_y);
     if (in_bounds && cvector_size(G[x * G_y + y].points) >= min_points)
     {
-        // TODO: Label all points in this dense box.
-        // TODO: Queue cell.
+        // Label all points in this dense box.
+        args_label_points.indices = G[x * G_y + y].points;
+        label_points((void *)&args_label_points);
+
+        // Queue cell.
+        cvector_push_back(queue, x * G_y + y);
     }
     else
     {
@@ -558,8 +624,12 @@ void merge_dense_boxes(void *args)
     in_bounds = (x > -1) && (x < G_x) && (y > -1) && (y < G_y);
     if (in_bounds && cvector_size(G[x * G_y + y].points) >= min_points)
     {
-        // TODO: Label all points in this dense box.
-        // TODO: Queue cell.
+        // Label all points in this dense box.
+        args_label_points.indices = G[x * G_y + y].points;
+        label_points((void *)&args_label_points);
+
+        // Queue cell.
+        cvector_push_back(queue, x * G_y + y);
     }
 
     // Check left.
@@ -568,8 +638,12 @@ void merge_dense_boxes(void *args)
     in_bounds = (x > -1) && (x < G_x) && (y > -1) && (y < G_y);
     if (in_bounds && cvector_size(G[x * G_y + y].points) >= min_points)
     {
-        // TODO: Label all points in this dense box.
-        // TODO: Queue cell.
+        // Label all points in this dense box.
+        args_label_points.indices = G[x * G_y + y].points;
+        label_points((void *)&args_label_points);
+
+        // Queue cell.
+        cvector_push_back(queue, x * G_y + y);
     }
     else
     {
@@ -588,7 +662,11 @@ void merge_dense_boxes(void *args)
     in_bounds = (x > -1) && (x < G_x) && (y > -1) && (y < G_y);
     if (in_bounds && cvector_size(G[x * G_y + y].points) >= min_points)
     {
-        // TODO: Label all points in this dense box.
-        // TODO: Queue cell.
+        // Label all points in this dense box.
+        args_label_points.indices = G[x * G_y + y].points;
+        label_points((void *)&args_label_points);
+
+        // Queue cell.
+        cvector_push_back(queue, x * G_y + y);
     }
 }
