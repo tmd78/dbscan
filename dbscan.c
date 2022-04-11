@@ -58,12 +58,22 @@ struct args_label_points
 
 struct args_merge_dense_boxes
 {
+    double epsilon;
     int focal;
     struct cell *G;
     int G_x;
     int G_y;
+    int label;
     int *merged;
     int min_points;
+    struct point *points;
+};
+
+struct args_should_merge
+{
+    struct cell a;
+    struct cell b;
+    double epsilon;
     struct point *points;
 };
 
@@ -73,6 +83,7 @@ void dense_box(void *args);
 int get_neighbors(void *args);
 void label_points(void *args);
 int merge_dense_boxes(void *args);
+bool should_merge(void *args);
 
 int main(int argc, char *argv[])
 {
@@ -363,8 +374,11 @@ void dense_box(void *args)
     cvector_push_back(queue, 0);
     cvector_pop_back(queue);
     
-    // Update arguments.
+    // Update arguments for label_points.
     args_label_points.points = points;
+    
+    // Update arguments for merge_dense_boxes.
+    args_merge_dense_boxes.epsilon = epsilon;
     args_merge_dense_boxes.G = G;
     args_merge_dense_boxes.G_x = G_x;
     args_merge_dense_boxes.G_y = G_y;
@@ -394,18 +408,24 @@ void dense_box(void *args)
             continue;
         }
 
-        // Label all points in this cell with label's current value.
+        // Update arguments for merge_dense_boxes.
         label += 1;
+        args_merge_dense_boxes.focal = i;
+        args_merge_dense_boxes.label = label;
+        
+        // Merge surrounding dense boxes.
+        merged_count = merge_dense_boxes((void *)&args_merge_dense_boxes);
+
+        if (merged_count == 0)
+        {
+            continue;
+        }
+
+        // Label all points in this dense box with label.
         args_label_points.indices = G[i].points;
         args_label_points.label = label;
         label_points((void *)&args_label_points);
 
-        // Update focal in arguments.
-        args_merge_dense_boxes.focal = i;
-        
-        // Merge surrounding dense boxes.
-        merged_count = merge_dense_boxes((void *)&args_merge_dense_boxes);
-        
         // Queue merged dense boxes.
         for (j = 0; j < merged_count; j++)
         {
@@ -500,7 +520,10 @@ Returns: An int representing the number of dense boxes merged.
 */
 int merge_dense_boxes(void *args)
 {
+    int adjacent_count;
     struct args_label_points args_label_points;
+    struct args_should_merge args_should_merge;
+    double epsilon;
     // An index to G.
     int focal;
     struct cell *G;
@@ -508,10 +531,14 @@ int merge_dense_boxes(void *args)
     int G_y;
     int i;
     bool in_bounds;
+    int j;
+    int label;
     // Holds indices of dense boxes merged to focal.
     int *merged;
     int merged_count;
     int min_points;
+    int non_adjacent[4];
+    int non_adjacent_count;
     struct point *points;
     int *queue;
     int x;
@@ -519,33 +546,95 @@ int merge_dense_boxes(void *args)
     
     // Unpack args.
     struct args_merge_dense_boxes *packet = (struct args_merge_dense_boxes *)args;
+    epsilon = packet->epsilon;
     focal = packet->focal;
     G = packet->G;
     G_x = packet->G_x;
     G_y = packet->G_y;
+    label = packet->label;
     merged = packet->merged;
     min_points = packet->min_points;
     points = packet->points;
-    
-    // Update arguments.
-    args_label_points.label = points[G[focal].points[0]].label;
-    args_label_points.points = points;
 
-    // Get adjacent cells.
+    // Get diagonally-adjacent cells.
     int adjacent[8] = {
-        G[focal].x * G_y + (G[focal].y + 1),
-        (G[focal].x + 1) * G_y + (y = G[focal].y + 1),
-        (G[focal].x + 1) * G_y + G[focal].y,
+        (G[focal].x + 1) * G_y + (G[focal].y + 1),
         (G[focal].x + 1) * G_y + (G[focal].y - 1),
-        G[focal].x * G_y + (G[focal].y - 1),
         (G[focal].x - 1) * G_y + (G[focal].y - 1),
-        (G[focal].x - 1) * G_y + G[focal].y,
         (G[focal].x - 1) * G_y + (G[focal].y + 1)
     };
+    adjacent_count = 4;
+
+    // Get horizontal/vertical cells.
+    non_adjacent_count = 0;
+    // Top.
+    x = G[focal].x;
+    y = G[focal].y + 1;
+    in_bounds = (x > -1) && (x < G_x) && (y > -1) && (y < G_y);
+    if (in_bounds && cvector_size(G[x * G_y + y].points) < min_points)
+    {
+        non_adjacent[non_adjacent_count] = x * G_y + (y + 1);
+        non_adjacent_count += 1;
+    }
+    else
+    {
+        adjacent[adjacent_count] = x * G_y + y;
+        adjacent_count += 1;
+    }
+    // Right.
+    x = G[focal].x + 1;
+    y = G[focal].y;
+    in_bounds = (x > -1) && (x < G_x) && (y > -1) && (y < G_y);
+    if (in_bounds && cvector_size(G[x * G_y + y].points) < min_points)
+    {
+        non_adjacent[non_adjacent_count] = (x + 1) * G_y + y;
+        non_adjacent_count += 1;
+    }
+    else
+    {
+        adjacent[adjacent_count] = x * G_y + y;
+        adjacent_count += 1;
+    }
+    // Bottom.
+    x = G[focal].x;
+    y = G[focal].y - 1;
+    in_bounds = (x > -1) && (x < G_x) && (y > -1) && (y < G_y);
+    if (in_bounds && cvector_size(G[x * G_y + y].points) < min_points)
+    {
+        non_adjacent[non_adjacent_count] = x * G_y + (y - 1);
+        non_adjacent_count += 1;
+    }
+    else
+    {
+        adjacent[adjacent_count] = x * G_y + y;
+        adjacent_count += 1;
+    }
+    // Left.
+    x = G[focal].x - 1;
+    y = G[focal].y;
+    in_bounds = (x > -1) && (x < G_x) && (y > -1) && (y < G_y);
+    if (in_bounds && cvector_size(G[x * G_y + y].points) < min_points)
+    {
+        non_adjacent[non_adjacent_count] = (x - 1) * G_y + y;
+        non_adjacent_count += 1;
+    }
+    else
+    {
+        adjacent[adjacent_count] = x * G_y + y;
+        adjacent_count += 1;
+    }
+
+    // Update arguments for label_points.
+    args_label_points.label = label;
+    args_label_points.points = points;
+
+    // Update arguments for should_merge.
+    args_should_merge.epsilon = epsilon;
+    args_should_merge.points = points;
     
     // Attempt to merge adjacent cells.
     merged_count = 0;
-    for (i = 0; i < 8; i++)
+    for (i = 0; i < adjacent_count; i++)
     {
         if (adjacent[i] < 0 || adjacent[i] >= G_x * G_y)
         {
@@ -574,7 +663,87 @@ int merge_dense_boxes(void *args)
         merged_count += 1;
     }
 
-    // TODO: Attempt to merge non-adjacent cells.
+    // Attempt to merge non-adjacent cells.
+    for (i = 0; i < non_adjacent_count; i++)
+    {
+        if (non_adjacent[i] < 0 || non_adjacent[i] >= G_x * G_y)
+        {
+            // Index out of bounds of G.
+            continue;
+        }
+
+        if (cvector_size(G[non_adjacent[i]].points) < min_points)
+        {
+            // Not a dense box.
+            continue;
+        }
+
+        if (points[G[non_adjacent[i]].points[0]].label > 0)
+        {
+            // Already merged.
+            continue;
+        }
+
+        // Update arguments for should_merge.
+        args_should_merge.a = G[focal];
+        args_should_merge.b = G[non_adjacent[i]];
+        
+        if (!should_merge((void *)&args_should_merge))
+        {
+            continue;
+        }
+        
+        // Label all points in this dense box.
+        args_label_points.indices = G[non_adjacent[i]].points;
+        label_points((void *)&args_label_points);
+
+        // Add this dense box to merged.
+        merged[merged_count] = non_adjacent[i];
+        merged_count += 1;
+    }
 
     return merged_count;
+}
+
+/*
+A description.
+
+Returns: A bool.
+*/
+bool should_merge(void *args)
+{
+    struct cell a;
+    struct cell b;
+    double delta_x;
+    double delta_y;
+    double distance;
+    double epsilon;
+    int i;
+    int j;
+    struct point *points;
+
+    // Unpack args.
+    struct args_should_merge *packet = (struct args_should_merge *)args;
+    a = packet->a;
+    b = packet->b;
+    epsilon = packet->epsilon;
+    points = packet->points;
+
+    for (i = 0; i < cvector_size(a.points); i++)
+    {
+        for (j = 0; j < cvector_size(b.points); j++)
+        {
+            // Calculate distance.
+            delta_x = points[a.points[i]].x - points[b.points[j]].x;
+            delta_y = points[a.points[i]].y - points[b.points[j]].y;
+            distance = sqrt(delta_x * delta_x + delta_y * delta_y);
+
+            if (distance <= epsilon)
+            {
+                return true;
+            }
+        }
+    }
+
+    return false;
 }
