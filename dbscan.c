@@ -432,7 +432,34 @@ void dense_box(void *args)
             cvector_push_back(queue, merged[j]);
         }
 
-        // TODO: Continue merge with current label value and cells on queue.
+        // Continue merge using queue.
+        j = cvector_size(queue);
+        while (j > 0)
+        {
+            // Dequeue.
+            int focal = queue[0];
+            cvector_erase(queue, 0);
+            j -= 1;
+
+            // Update arguments for merge_dense_boxes.
+            args_merge_dense_boxes.focal = focal;
+            args_merge_dense_boxes.label = label;
+
+            // Merge surrounding dense boxes.
+            merged_count = merge_dense_boxes((void *)&args_merge_dense_boxes);
+
+            if (merged_count == 0)
+            {
+                continue;
+            }
+
+            // Queue merged dense boxes.
+            for (int k = 0; k < merged_count; k++)
+            {
+                cvector_push_back(queue, merged[k]);
+                j += 1;
+            }
+        }
     }
 
     // Free heap memory.
