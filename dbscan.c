@@ -408,8 +408,13 @@ void dense_box(void *args)
             continue;
         }
 
-        // Update arguments for merge_dense_boxes.
+        // Label all points in this dense box with label.
         label += 1;
+        args_label_points.indices = G[i].points;
+        args_label_points.label = label;
+        label_points((void *)&args_label_points);
+
+        // Update arguments for merge_dense_boxes.
         args_merge_dense_boxes.focal = i;
         args_merge_dense_boxes.label = label;
         
@@ -420,11 +425,6 @@ void dense_box(void *args)
         {
             continue;
         }
-
-        // Label all points in this dense box with label.
-        args_label_points.indices = G[i].points;
-        args_label_points.label = label;
-        label_points((void *)&args_label_points);
 
         // Queue merged dense boxes.
         for (j = 0; j < merged_count; j++)
