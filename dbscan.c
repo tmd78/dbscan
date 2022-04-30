@@ -1,5 +1,6 @@
 #include "cvector.h"
 #include <math.h> // sqrt
+#include "rtree.h"
 #include <stdbool.h> // bool
 #include <stdio.h> // FILE
 #include <stdlib.h> // RAND_MAX
@@ -99,6 +100,7 @@ int main(int argc, char *argv[])
     int min_points;
     // Allocate on heap.
     struct point *points = malloc(N * sizeof(struct point));
+    struct rtree *r_tree = rtree_new(sizeof(struct point *), 2);
 
     epsilon = atof(argv[1]);
     min_points = atoi(argv[2]);
@@ -124,6 +126,13 @@ int main(int argc, char *argv[])
     // Avoid distance calculations with dense box.
     dense_box((void *)&args_dense_box);
 
+    // Populate r_tree.
+    for (int i = 0; i < N; i++)
+    {
+        double mbr[] = {points[i].x, points[i].y, points[i].x, points[i].y};
+        rtree_insert(r_tree, mbr, &points[i]);
+    }
+    
     // Package arguments for dbscan.
     struct args_dbscan args_dbscan = {
         .epsilon = epsilon,
