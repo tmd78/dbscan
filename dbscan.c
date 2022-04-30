@@ -97,7 +97,8 @@ int main(int argc, char *argv[])
     FILE *file_pointer;
     // The minimum number of points that constitute a cluster.
     int min_points;
-    struct point points[N];
+    // Allocate on heap.
+    struct point *points = malloc(N * sizeof(struct point));
 
     epsilon = atof(argv[1]);
     min_points = atoi(argv[2]);
@@ -147,7 +148,7 @@ int main(int argc, char *argv[])
 
 void create_points(struct point *points)
 {
-    double max_coordinate = 1000;
+    double max_coordinate = N;
     srand(72);
 
     for (int i = 0; i < N; i++)
@@ -166,19 +167,28 @@ Returns: void.
 */
 void dbscan(void *args)
 {
+    struct args_get_neighbors args_get_neighbors;
     double epsilon;
     int label;
     int min_points;
+    int *neighbors = malloc(N * sizeof(int));
+    int neighbors_count;
     struct point *points;
     // Seed set.
-    int S[N*N];
-    int S_count;
+    cvector_vector_type(int) S = NULL;
+    cvector_push_back(S, 0);
+    cvector_pop_back(S);
     
     // Unpack args.
     struct args_dbscan *packet = (struct args_dbscan *)args;
     epsilon = packet->epsilon;
     min_points = packet->min_points;
     points = packet->points;
+
+    // Update arguments for get_neighbors.
+    args_get_neighbors.epsilon = epsilon;
+    args_get_neighbors.neighbors = neighbors;
+    args_get_neighbors.points = points;
 
     // Loop through all points.
     label = 0;
@@ -190,44 +200,35 @@ void dbscan(void *args)
             continue;
         }
 
-        S_count = 0;
-
-        // Package arguments for get_neighbors.
-        struct args_get_neighbors args = {
-            .epsilon = epsilon,
-            .focal = points[i],
-            .neighbors = S,
-            .points = points
-        };
+        // Update arguments for get_neighbors.
+        args_get_neighbors.focal = points[i];
 
         // Find neighbors of points[i].
-        int S_count = get_neighbors((void *)&args);
+        neighbors_count = get_neighbors((void *)&args_get_neighbors);
 
-        if (S_count < min_points)
+        if (neighbors_count < min_points)
         {
             // min_points condition does not hold.
             points[i].label = NOISE;
             continue;
         }
 
-        // Add points[i] to cluster whose ID = label.
+        // Add points[i] to current cluster.
         label += 1;
         points[i].label = label;
-
-        // Iterator.
-        int j = 0;
-        int neighbor_count;
-        // Holds indices from get_neighbors.
-        int neighbors[N];
-        // The points index of seed in iteration below.
-        int s;
-        // Loop through S; note that S_count may increase during iteration.
-        while (j < S_count)
+        
+        // Add neighbors to seed set.
+        for (int j = 0; j < neighbors_count; j++)
         {
-            s = S[j];
-            
-            // Increment j to show we've visited this seed.
-            j += 1;
+            cvector_push_back(S, neighbors[j]);
+        }
+
+        // Exhaust seed set.
+        while (cvector_size(S) > 0)
+        {
+            // An index to points array.
+            int s = S[0];
+            cvector_erase(S, 0);
 
             if (s == i)
             {
@@ -248,33 +249,30 @@ void dbscan(void *args)
                 continue;
             }
 
-            // Add this seed to cluster whose ID = label.
+            // Add points[s] to current cluster.
             points[s].label = label;
 
-            // Package arguments for get_neighbors.
-            struct args_get_neighbors args = {
-                .epsilon = epsilon,
-                .focal = points[s],
-                .neighbors = neighbors,
-                .points = points
-            };
+            // Update arguments for get_neighbors.
+            args_get_neighbors.focal = points[s];
 
-            neighbor_count = get_neighbors((void *)&args);
+            neighbors_count = get_neighbors((void *)&args_get_neighbors);
 
-            if (neighbor_count < min_points)
+            if (neighbors_count < min_points)
             {
                 // min_points condition does not hold.
                 continue;
             }
 
-            // Add this seed's neighbor indices to S.
-            for (int k = 0; k < neighbor_count; k++)
+            // Add neighbors to seed set.
+            for (int k = 0; k < neighbors_count; k++)
             {
-                S[S_count] = neighbors[k];
-                S_count += 1;
+                cvector_push_back(S, neighbors[k]);
             }
         }
     }
+
+    // Free heap.
+    cvector_free(S);
 }
 
 /*
