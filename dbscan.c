@@ -44,6 +44,8 @@ struct args_dense_box
 
 struct args_get_neighbors
 {
+    int *candidates;
+    int candidates_count;
     double epsilon;
     struct point focal;
     int *neighbors;
@@ -209,6 +211,7 @@ void dbscan(void *args)
     }
 
     // Update arguments for get_neighbors.
+    args_get_neighbors.candidates = candidates;
     args_get_neighbors.epsilon = epsilon;
     args_get_neighbors.neighbors = neighbors;
     args_get_neighbors.points = points;
@@ -238,6 +241,7 @@ void dbscan(void *args)
         rtree_search(r_tree, mbr, rtree_search_item_handler, (void *)&args_rtree_search);
         
         // Update arguments for get_neighbors.
+        args_get_neighbors.candidates_count = candidates_count;
         args_get_neighbors.focal = points[i];
 
         // Find neighbors of points[i].
@@ -289,7 +293,19 @@ void dbscan(void *args)
             // Add points[s] to current cluster.
             points[s].label = label;
 
+            // Update arguments for rtree_search.
+            candidates_count = 0;
+            mbr[0] = points[s].x - epsilon;
+            mbr[1] = points[s].y - epsilon;
+            mbr[2] = points[s].x + epsilon;
+            mbr[3] = points[s].y + epsilon;
+            args_rtree_search.candidates_count = &candidates_count;
+
+            // Search r_tree for neighbor candidates.
+            rtree_search(r_tree, mbr, rtree_search_item_handler, (void *)&args_rtree_search);
+
             // Update arguments for get_neighbors.
+            args_get_neighbors.candidates_count = candidates_count;
             args_get_neighbors.focal = points[s];
 
             neighbors_count = get_neighbors((void *)&args_get_neighbors);
@@ -512,6 +528,8 @@ Returns: An int representing the number of neighbors found.
 */
 int get_neighbors(void *args)
 {
+    int *candidates;
+    int candidates_count;
     double delta_x;
     double delta_y;
     double distance;
@@ -524,24 +542,29 @@ int get_neighbors(void *args)
 
     // Unpack args.
     struct args_get_neighbors *packet = (struct args_get_neighbors *)args;
+    candidates = packet->candidates;
+    candidates_count = packet->candidates_count;
     epsilon = packet->epsilon;
     focal = packet->focal;
     neighbors = packet->neighbors;
     points = packet->points;
     
-    // Loop through points to find neighbors--points within epsilon distance of focal.
+    // Loop through candidates to find neighbors.
     next_index = 0;
-    for (int i = 0; i < N; i++)
+    for (int i = 0; i < candidates_count; i++)
     {
+        // An index to the points array.
+        int c = candidates[i];
+        
         // Calculate distance.
-        delta_x = focal.x - points[i].x;
-        delta_y = focal.y - points[i].y;
+        delta_x = focal.x - points[c].x;
+        delta_y = focal.y - points[c].y;
         distance = sqrt(delta_x*delta_x + delta_y*delta_y);
 
         if (distance <= epsilon)
         {
             // We found a neighbor; record its index.
-            neighbors[next_index] = i;
+            neighbors[next_index] = c;
             next_index += 1;
         }
     }
