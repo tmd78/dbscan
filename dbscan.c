@@ -70,6 +70,12 @@ struct args_merge_dense_boxes
     struct point *points;
 };
 
+struct args_rtree_search
+{
+    int *candidates;
+    int *candidates_count;
+};
+
 struct args_should_merge
 {
     struct cell a;
@@ -84,6 +90,7 @@ void dense_box(void *args);
 int get_neighbors(void *args);
 void label_points(void *args);
 int merge_dense_boxes(void *args);
+bool rtree_search_item_handler(const double *mbr, const void *item, void *args);
 bool should_merge(void *args);
 
 int main(int argc, char *argv[])
@@ -100,7 +107,6 @@ int main(int argc, char *argv[])
     int min_points;
     // Allocate on heap.
     struct point *points = malloc(N * sizeof(struct point));
-    struct rtree *r_tree = rtree_new(sizeof(struct point *), 2);
 
     epsilon = atof(argv[1]);
     min_points = atoi(argv[2]);
@@ -125,13 +131,6 @@ int main(int argc, char *argv[])
 
     // Avoid distance calculations with dense box.
     dense_box((void *)&args_dense_box);
-
-    // Populate r_tree.
-    for (int i = 0; i < N; i++)
-    {
-        double mbr[] = {points[i].x, points[i].y, points[i].x, points[i].y};
-        rtree_insert(r_tree, mbr, &points[i]);
-    }
     
     // Package arguments for dbscan.
     struct args_dbscan args_dbscan = {
@@ -177,12 +176,17 @@ Returns: void.
 void dbscan(void *args)
 {
     struct args_get_neighbors args_get_neighbors;
+    struct args_rtree_search args_rtree_search;
+    int *candidates = malloc(N * sizeof(int));
+    int candidates_count;
     double epsilon;
     int label;
+    double mbr[4];
     int min_points;
     int *neighbors = malloc(N * sizeof(int));
     int neighbors_count;
     struct point *points;
+    struct rtree *r_tree = rtree_new(sizeof(struct point *), 2);
     // Seed set.
     cvector_vector_type(int) S = NULL;
     cvector_push_back(S, 0);
@@ -194,10 +198,23 @@ void dbscan(void *args)
     min_points = packet->min_points;
     points = packet->points;
 
+    // Populate r_tree.
+    for (int i = 0; i < N; i++)
+    {
+        mbr[0] = points[i].x;
+        mbr[1] = points[i].y;
+        mbr[2] = points[i].x;
+        mbr[3] = points[i].y;
+        rtree_insert(r_tree, mbr, &points[i]);
+    }
+
     // Update arguments for get_neighbors.
     args_get_neighbors.epsilon = epsilon;
     args_get_neighbors.neighbors = neighbors;
     args_get_neighbors.points = points;
+
+    // Update arguments for rtree_search.
+    args_rtree_search.candidates = candidates;
 
     // Loop through all points.
     label = 0;
@@ -209,6 +226,17 @@ void dbscan(void *args)
             continue;
         }
 
+        // Update arguments for rtree_search.
+        candidates_count = 0;
+        args_rtree_search.candidates_count = &candidates_count;
+        mbr[0] = points[i].x - epsilon;
+        mbr[1] = points[i].y - epsilon;
+        mbr[2] = points[i].x + epsilon;
+        mbr[3] = points[i].y + epsilon;
+
+        // Search r_tree for neighbor candidates.
+        rtree_search(r_tree, mbr, rtree_search_item_handler, (void *)&args_rtree_search);
+        
         // Update arguments for get_neighbors.
         args_get_neighbors.focal = points[i];
 
@@ -737,6 +765,30 @@ int merge_dense_boxes(void *args)
     }
 
     return merged_count;
+}
+
+/*
+A description.
+
+Returns: A bool.
+*/
+bool rtree_search_item_handler(const double *mbr, const void *item, void *args)
+{
+    int *candidates;
+    int *candidates_count;
+    const struct point *point;
+    
+    // Unpack args.
+    struct args_rtree_search *packet = (struct args_rtree_search *)args;
+    candidates = packet->candidates;
+    candidates_count = packet->candidates_count;
+    point = (const struct point *)item;
+
+    // Add point's index to candidates.
+    candidates[*candidates_count] = point->index;
+    *candidates_count += 1;
+
+    return true;
 }
 
 /*
